@@ -1,0 +1,9 @@
+# 图片
+*.png
+*.jpg
+
+# 模型
+/outputs/
+
+# 日志
+/logs/
