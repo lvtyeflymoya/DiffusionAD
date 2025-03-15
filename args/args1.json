@@ -18,7 +18,7 @@
   "num_head_channels":-1,
   "noise_fn":"gauss",
   "channels":3,
-  "mvtec_root_path":"E:/zhanglelelelelelele/ImageDataSet/DiffusionAD_dataset_shipwood_ano_src",
+  "mvtec_root_path":"D:/ImageAnnotation/Diffusion_Dataset_test",
   "visa_root_path":"datasets/VisA_1class/1cls",
   "dagm_root_path":"datasets/dagm",
   "mpdd_root_path":"datasets/mpdd",

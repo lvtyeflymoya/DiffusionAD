@@ -63,14 +63,6 @@ class BinaryFocalLoss(nn.Module):
         else:
             return F_loss
 
-def plot_loss(losses):
-    plt.figure()
-    plt.plot(losses, label='Train Loss')
-    plt.xlabel('Epoch')
-    plt.ylabel('Loss')
-    plt.legend()
-    plt.title('Training Loss per Epoch')
-    plt.close()
 
 def train(training_dataset_loader, testing_dataset_loader, args, data_len, sub_class, class_type, device):
     tb_writer = SummaryWriter(log_dir="logs")

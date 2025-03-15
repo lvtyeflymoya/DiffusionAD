@@ -26,7 +26,7 @@ import os
 from torch.utils.data import DataLoader
 from skimage.measure import label, regionprops
 import sys
-from sklearn.metrics import precision_score, recall_score, average_precision_score
+from sklearn.metrics import precision_score, recall_score, average_precision_score,f1_score
 
 def pixel_pro(mask,pred):
     mask=np.asarray(mask, dtype=np.bool_)
@@ -198,9 +198,21 @@ def testing(testing_dataset_loader, args,unet_model,seg_model,data_len,sub_class
     
     normal_t=args["eval_normal_t"]
     noiser_t=args["eval_noisier_t"]
-    
-    os.makedirs(f'{args["output_path"]}/metrics/ARGS={args["arg_num"]}/{sub_class}/visualization_{normal_t}_{noiser_t}_{args["condition_w"]}condition_{checkpoint_type}ck', exist_ok=True)
-    
+    # 创建结果保存文件夹
+    base_validation_path = f'{args["output_path"]}/metrics/ARGS={args["arg_num"]}/{sub_class}/validation'
+    index = 1
+    while True:
+        current_validation_path = f'{base_validation_path}{index}'
+        if not os.path.exists(current_validation_path):
+            break
+        index += 1
+    os.makedirs(current_validation_path, exist_ok=True)
+    visualization_folder = os.path.join(current_validation_path, 'visualization')
+    curve_folder = os.path.join(current_validation_path, 'curves')
+    os.makedirs(visualization_folder, exist_ok=True)
+    os.makedirs(curve_folder, exist_ok=True)
+
+
     in_channels = args["channels"]
     betas = get_beta_schedule(args['T'], args['beta_schedule'])
 
@@ -277,7 +289,7 @@ def testing(testing_dataset_loader, args,unet_model,seg_model,data_len,sub_class
 
         savename = image_path[0].split("/")
         savename = "_".join(savename[-4:])
-        savename = os.path.join(f'{args["output_path"]}/metrics/ARGS={args["arg_num"]}/{sub_class}/visualization_{normal_t}_{noiser_t}_{args["condition_w"]}condition_{checkpoint_type}ck', savename)
+        savename = os.path.join(visualization_folder, savename)
 
         f, axes = plt.subplots(2, 5 )
         f.suptitle(f'image score:{str(image_score.detach().cpu().numpy())}')
@@ -325,19 +337,64 @@ def testing(testing_dataset_loader, args,unet_model,seg_model,data_len,sub_class
         f.tight_layout()
         f.savefig(savename)
         plt.close()
+    # Calculate precision, recall, and F1 score at different thresholds
+    thresholds = np.linspace(0, 1, 100)
+    precisions = []
+    recalls = []
+    f1_scores = []
+
+    for threshold in thresholds:
+        total_pred_labels = (total_image_pred >= threshold).astype(int)
+        precision = precision_score(total_image_gt, total_pred_labels)
+        recall = recall_score(total_image_gt, total_pred_labels)
+        f1 = f1_score(total_image_gt, total_pred_labels)
+
+        precisions.append(precision)
+        recalls.append(recall)
+        f1_scores.append(f1)
+
+    # 使用 interp1d 进行插值
+    from scipy.interpolate import interp1d
+
+    # 定义更密集的阈值用于插值
+    new_thresholds = np.linspace(0, 1, 500)
+
+    # 对 precision、recall 和 F1 分数进行插值
+    precision_interp = interp1d(thresholds, precisions, kind='cubic')
+    recall_interp = interp1d(thresholds, recalls, kind='cubic')
+    f1_interp = interp1d(thresholds, f1_scores, kind='cubic')
+
+    # 计算插值后的指标值
+    smoothed_precisions = precision_interp(new_thresholds)
+    smoothed_recalls = recall_interp(new_thresholds)
+    smoothed_f1_scores = f1_interp(new_thresholds)
+    
+    plt.figure(figsize=(10, 6))
+    plt.plot(new_thresholds, smoothed_precisions, label='Precision')
+    plt.plot(new_thresholds, smoothed_recalls, label='Recall')
+    plt.plot(new_thresholds, smoothed_f1_scores, label='F1 Score')
+    plt.xlabel('Threshold')
+    plt.ylabel('Score')
+    plt.title('Precision, Recall, and F1 Score at Different Thresholds')
+    plt.legend()
+    plt.grid(True)
+    precision_recall_f1_path = os.path.join(curve_folder, 'precision_recall_f1_curve.png')
+    plt.savefig(precision_recall_f1_path, dpi=300)
+    plt.close()
 
 
-    # Define a threshold
-    threshold = 0.5
-    # Convert scores to binary predictions based on the threshold
-    total_pred_labels = (total_image_pred >= threshold).astype(int)
-    # Calculate precision, recall, and AP
-    precision = precision_score(total_image_gt, total_pred_labels)
-    recall = recall_score(total_image_gt, total_pred_labels)
-    ap = average_precision_score(total_image_gt, total_pred_labels)
-    print(f"Precision at threshold {threshold}: {precision}")
-    print(f"Recall at threshold {threshold}: {recall}")
-    print(f"Average Precision: {ap}")
+
+    # # Define a threshold
+    # threshold = 0.5
+    # # Convert scores to binary predictions based on the threshold
+    # total_pred_labels = (total_image_pred >= threshold).astype(int)
+    # # Calculate precision, recall, and AP
+    # precision = precision_score(total_image_gt, total_pred_labels)
+    # recall = recall_score(total_image_gt, total_pred_labels)
+    # ap = average_precision_score(total_image_gt, total_pred_labels)
+    # print(f"Precision at threshold {threshold}: {precision}")
+    # print(f"Recall at threshold {threshold}: {recall}")
+    # print(f"Average Precision: {ap}")
 
     # Calculate ROC curve
     fpr, tpr, thresholds = roc_curve(total_image_gt, total_image_pred)
@@ -349,8 +406,8 @@ def testing(testing_dataset_loader, args,unet_model,seg_model,data_len,sub_class
     # 标注每个点的阈值
     for i in range(len(thresholds)):
         plt.annotate(f'{thresholds[i]:.2f}', (fpr[i], tpr[i]), textcoords="offset points", xytext=(0,10), ha='center')
-    plt.savefig(f'{args["output_path"]}/metrics/ARGS={args["arg_num"]}/{sub_class}/ROC_curve.png', dpi=300)
-    # plt.show()
+    roc_curve_path = os.path.join(curve_folder, 'ROC_curve.png')
+    plt.savefig(roc_curve_path, dpi=300)
 
     
     auroc_image = round(roc_auc_score(total_image_gt,total_image_pred),3)*100
