@@ -199,33 +199,49 @@ class MVTecTrainDataset(Dataset):
 
             has_anomaly = 0
             try_cnt = 0
-            while(has_anomaly == 0 and try_cnt<50):  
-                perlin_noise = rand_perlin_2d_np(
-                    (self.resize_shape[0], self.resize_shape[1]), (perlin_scalex, perlin_scaley))
-                perlin_noise = self.rot(image=perlin_noise)
-                threshold = 0.5
-                perlin_thr = np.where(perlin_noise > threshold, np.ones_like(perlin_noise), np.zeros_like(perlin_noise))
+            # 生成perlin噪声并和阈值图像进行合成
+            # while(has_anomaly == 0 and try_cnt<50):  
+            #     perlin_noise = rand_perlin_2d_np(
+            #         (self.resize_shape[0], self.resize_shape[1]), (perlin_scalex, perlin_scaley))
+            #     perlin_noise = self.rot(image=perlin_noise)
+            #     threshold = 0.5
+            #     perlin_thr = np.where(perlin_noise > threshold, np.ones_like(perlin_noise), np.zeros_like(perlin_noise))
                 
-                # object_perlin = thresh*perlin_thr
-                # 修改成不使用perlin噪声合成，直接使用原本的thresh，这样能将整个船用上
-                binary_mask = np.where(image > 0, 1, 0).astype(np.float32)  # 将原始图像转成二值掩膜图
-                binary_mask = binary_mask[:, :, 0]
-                object_perlin = thresh * binary_mask # 确保异常全合成到水面上
+            #     # object_perlin = thresh*perlin_thr
+            #     # 修改成不使用perlin噪声合成，直接使用原本的thresh，这样能将整个船用上
+            #     binary_mask = np.where(image > 0, 1, 0).astype(np.float32)  # 将原始图像转成二值掩膜图
+            #     binary_mask = binary_mask[:, :, 0]
+            #     object_perlin = thresh * binary_mask # 确保异常全合成到水面上
 
-                object_perlin = np.expand_dims(object_perlin, axis=2).astype(np.float32)  
-
-                msk = (object_perlin).astype(np.float32) 
-                if np.sum(msk) !=0: 
-                    has_anomaly = 1        
-                try_cnt+=1
+            #     object_perlin = np.expand_dims(object_perlin, axis=2).astype(np.float32)  
+            #     msk = (object_perlin).astype(np.float32) 
+            #     if np.sum(msk) !=0: 
+            #         has_anomaly = 1        
+            #     try_cnt+=1
                 
             
+
+
             if self.classname in texture_list: # only DTD
                 aug = self.randAugmenter()
                 anomaly_source_img = cv2.cvtColor(cv2.imread(anomaly_source_path),cv2.COLOR_BGR2RGB)
                 anomaly_source_img = cv2.resize(anomaly_source_img, dsize=(
                     self.resize_shape[1], self.resize_shape[0]))
-                anomaly_img_augmented = aug(image=anomaly_source_img)
+                
+
+                spatial_aug = self.randAugmenter_mask()
+                anomaly_img_augmented, thresh = spatial_aug(
+                    images=[anomaly_source_img, thresh])
+                # 修改成不使用perlin噪声合成，直接使用原本的thresh，这样能将整个船用上
+                binary_mask = np.where(image > 0, 1, 0).astype(np.float32)  # 将原始图像转成二值掩膜图
+                binary_mask = binary_mask[:, :, 0]
+                object_perlin = thresh * binary_mask # 确保异常全合成到水面上
+                object_perlin = np.expand_dims(object_perlin, axis=2).astype(np.float32)  
+                msk = (object_perlin).astype(np.float32) 
+                if np.sum(msk) !=0: 
+                    has_anomaly = 1
+
+                # anomaly_img_augmented = aug(image=anomaly_source_img)
                 img_object_thr = anomaly_img_augmented.astype(
                     np.float32) * object_perlin/255.0
             else: # DTD and self-augmentation
@@ -236,12 +252,26 @@ class MVTecTrainDataset(Dataset):
                     anomaly_source_img = cv2.cvtColor(cv2.imread(anomaly_source_path),cv2.COLOR_BGR2RGB)
                     anomaly_source_img = cv2.resize(anomaly_source_img, dsize=(
                         self.resize_shape[1], self.resize_shape[0]))
+                    
+                    spatial_aug = self.randAugmenter_mask()
+                    anomaly_source_img, thresh = spatial_aug(
+                        images=[anomaly_source_img, thresh])
+                    # 修改成不使用perlin噪声合成，直接使用原本的thresh，这样能将整个船用上
+                    binary_mask = np.where(image > 0, 1, 0).astype(np.float32)  # 将原始图像转成二值掩膜图
+                    binary_mask = binary_mask[:, :, 0]
+                    object_perlin = thresh * binary_mask # 确保异常全合成到水面上
+                    object_perlin = np.expand_dims(object_perlin, axis=2).astype(np.float32)  
+                    msk = (object_perlin).astype(np.float32) 
+                    if np.sum(msk) !=0: 
+                        has_anomaly = 1
                     anomaly_img_augmented = aug(image=anomaly_source_img)
                     img_object_thr = anomaly_img_augmented.astype(
                         np.float32) * object_perlin/255.0
 
                 else: #self-augmentation
                     aug = self.randAugmenter()
+                    anomaly_image, object_perlin = spatial_aug(
+                        images=[aug(image=cv2_image), object_perlin])
                     anomaly_image = aug(image=cv2_image)
                     high, width = anomaly_image.shape[0], anomaly_image.shape[1]
                     gird_high, gird_width = int(high/8), int(width/8)
